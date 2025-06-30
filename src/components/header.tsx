@@ -10,6 +10,7 @@ import { User2Icon } from "lucide-react";
 
 export default function Header() {
   const [userName, setUserName] = useState("");
+  const [userRole, setUserRole] = useState("");
   const router = useRouter();
 
   useEffect(() => {
@@ -19,6 +20,7 @@ export default function Header() {
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) {
           setUserName(userSnap.data().email);
+          setUserRole(userSnap.data().role);
         }
       }
     });
@@ -33,7 +35,7 @@ export default function Header() {
 
   return (
     <header className="bg-green-700 text-white px-6 py-4 flex justify-between items-center shadow">
-      <h1 className="text-xl font-semibold">Dashboard Pakar</h1>
+      <h1 className="text-xl font-semibold">Dashboard {userRole}</h1>
       <div className="flex items-center space-x-4">
         <User2Icon className="w-6 h-6" />
         <span className="text-sm font-medium truncate max-w-[150px]">
