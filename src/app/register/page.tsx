@@ -7,6 +7,9 @@ import { auth, db } from "@/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 export default function RegisterPage() {
+  const [nama, setNama] = useState("");
+  const [jenisKelamin, setJenisKelamin] = useState("");
+  const [umur, setUmur] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("user");
@@ -26,11 +29,19 @@ export default function RegisterPage() {
       await setDoc(doc(db, "users", user.uid), {
         email: user.email,
         role: role,
+        nama: nama,
+        jenis_kelamin: jenisKelamin,
+        umur: parseInt(umur), // ubah ke number agar konsisten di Firestore
         created_at: serverTimestamp(),
       });
 
       setSuccess("Berhasil daftar! Silakan login.");
       setError("");
+
+      // Reset form field
+      setNama("");
+      setJenisKelamin("");
+      setUmur("");
       setEmail("");
       setPassword("");
       setRole("user");
@@ -71,6 +82,35 @@ export default function RegisterPage() {
           {success && <p className="text-green-600 mb-4">{success}</p>}
           <form onSubmit={handleRegister} className="space-y-5">
             <input
+              type="text"
+              placeholder="Nama Lengkap"
+              value={nama}
+              onChange={(e) => setNama(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              required
+            />
+
+            <select
+              value={jenisKelamin}
+              onChange={(e) => setJenisKelamin(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              required
+            >
+              <option value="">Pilih Jenis Kelamin</option>
+              <option value="laki-laki">Laki-laki</option>
+              <option value="perempuan">Perempuan</option>
+            </select>
+
+            <input
+              type="number"
+              placeholder="Umur"
+              value={umur}
+              onChange={(e) => setUmur(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              required
+            />
+
+            <input
               type="email"
               placeholder="Email"
               value={email}
@@ -78,6 +118,7 @@ export default function RegisterPage() {
               className="w-full px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
               required
             />
+
             <input
               type="password"
               placeholder="Password"
@@ -86,15 +127,17 @@ export default function RegisterPage() {
               className="w-full px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
               required
             />
+
             <select
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 hidden"
               required
             >
               <option value="user">User</option>
               <option value="pakar">Pakar</option>
             </select>
+
             <button
               type="submit"
               className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-md transition"

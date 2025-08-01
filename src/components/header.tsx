@@ -19,7 +19,7 @@ export default function Header() {
         const userRef = doc(db, "users", user.uid);
         const userSnap = await getDoc(userRef);
         if (userSnap.exists()) {
-          setUserName(userSnap.data().email);
+          setUserName(userSnap.data().nama);
           setUserRole(userSnap.data().role);
         }
       }
@@ -39,7 +39,7 @@ export default function Header() {
       <div className="flex items-center space-x-4">
         <User2Icon className="w-6 h-6" />
         <span className="text-sm font-medium truncate max-w-[150px]">
-          {userName}
+          Halo {userName} (^___^)v
         </span>
         <button
           onClick={handleLogout}
