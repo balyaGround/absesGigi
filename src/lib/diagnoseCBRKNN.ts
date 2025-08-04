@@ -1,38 +1,117 @@
-// Fungsi KNN berbobot untuk basis kasus Firestore
-import { gejalaList } from "@/data/bobotAbses";
+import { db } from "@/firebase";
+import {
+  collection,
+  getDocs,
+  addDoc,
+  query,
+  where,
+  serverTimestamp,
+  doc,
+  getDoc,
+} from "firebase/firestore";
 
-export interface BaseCase {
-  diagnosis: string;
-  solusi: string;
-  gejala: Record<string, boolean>; // 0/1 di Firestore
-  bobot: number[]; // array 9 angka (dari pakar)
+interface DiagnosisResult {
+  name: string;
+  score: number;
+  solusi?: string;
 }
 
-export function diagnoseCBRKNN(
-  inputGejala: Record<string, boolean>,
-  baseCases: BaseCase[]
-) {
-  const inputVector = gejalaList.map((g) => (inputGejala[g] ? 1 : 0));
+// Fungsi hitung cosine similarity
+function cosineSimilarity(a: number[], b: number[]) {
+  const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0);
+  const magnitudeA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
+  const magnitudeB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
+  return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
+}
 
-  const results = baseCases.map((kasus) => {
-    const kasusVector = gejalaList.map((g) => (kasus.gejala[g] ? 1 : 0));
-    const bobot = kasus.bobot; // bobot 9 angka
+export async function diagnoseCBRKNN(userId: string, gejala: boolean[]) {
+  // 1️⃣ Ambil info user dari Firestore
+  const userDoc = await getDoc(doc(db, "users", userId));
+  if (!userDoc.exists()) throw new Error("User tidak ditemukan");
 
-    let sum = 0;
-    for (let i = 0; i < gejalaList.length; i++) {
-      const diff = inputVector[i] - kasusVector[i];
-      sum += Math.pow(diff * bobot[i], 2);
-    }
+  const userInfo = userDoc.data();
 
-    const distance = Math.sqrt(sum);
-    const skor = Math.max(0, 100 - distance); // skala 0‑100 %
+  // 2️⃣ Cek caseBase dulu
+  const caseBaseRef = collection(db, "caseBase");
+  const q = query(caseBaseRef, where("gejala", "==", gejala));
+  const snapshot = await getDocs(q);
 
+  if (!snapshot.empty) {
+    const caseData = snapshot.docs[0].data();
     return {
-      diagnosis: kasus.diagnosis,
-      solusi: kasus.solusi,
-      skor: parseFloat(skor.toFixed(1)),
+      fromCaseBase: true,
+      finalDiagnosis: caseData.finalDiagnosis,
+      solusi: caseData.solusi,
+      allScores: caseData.allScores,
     };
+  }
+
+  // 3️⃣ Ambil data bobot pakar dari koleksi `kasus`
+  const kasusSnapshot = await getDocs(collection(db, "kasus"));
+  const kasusList: { diagnosis: string; bobot: number[]; solusi: string }[] =
+    [];
+  kasusSnapshot.forEach((doc) => {
+    const data = doc.data();
+    kasusList.push({
+      diagnosis: data.diagnosis,
+      bobot: data.bobot,
+      solusi: data.solusi,
+    });
   });
 
-  return results.sort((a, b) => b.skor - a.skor).slice(0, 3); // Top‑3
+  // 4️⃣ Ubah gejala user ke vector bobot (10 kalau dicentang, 0 kalau tidak)
+  const userVector = gejala.map((checked) => (checked ? 10 : 0));
+
+  // 5️⃣ Hitung similarity
+  const results: DiagnosisResult[] = kasusList.map((k) => ({
+    name: k.diagnosis,
+    score: parseFloat((cosineSimilarity(userVector, k.bobot) * 100).toFixed(1)),
+    solusi: k.solusi,
+  }));
+
+  // 6️⃣ Urutkan dari skor tertinggi
+  results.sort((a, b) => b.score - a.score);
+
+  const threshold = 85;
+  const highest = results[0];
+
+  if (highest.score >= threshold) {
+    // Simpan ke caseBase
+    await addDoc(collection(db, "caseBase"), {
+      gejala,
+      finalDiagnosis: highest.name,
+      solusi: highest.solusi,
+      allScores: results,
+      created_at: serverTimestamp(),
+      created_by: {
+        nama: "Hilda Ayu Tamara",
+        email: "hildaayu@gmail.com",
+        jenis_kelamin: "perempuan",
+        umur: 29,
+        role: "pakar",
+      },
+    });
+    return {
+      fromCaseBase: false,
+      finalDiagnosis: highest.name,
+      solusi: highest.solusi,
+      allScores: results,
+    };
+  } else {
+    // Simpan ke pendingCases
+    await addDoc(collection(db, "pendingCases"), {
+      gejala,
+      user_id: userId,
+      user_info: userInfo,
+      allScores: results,
+      status: "pending",
+      created_at: serverTimestamp(),
+    });
+    return {
+      fromCaseBase: false,
+      finalDiagnosis: null,
+      solusi: null,
+      allScores: results,
+    };
+  }
 }

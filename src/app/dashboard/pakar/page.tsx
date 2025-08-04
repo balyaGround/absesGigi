@@ -8,6 +8,7 @@ import {
   query,
   orderBy,
   addDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/firebase";
 import Header from "@/components/header";
@@ -21,6 +22,7 @@ export default function DashboardPakar() {
   const [solusi, setSolusi] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Ambil data kasus & pending dari Firestore
   useEffect(() => {
     const unsub1 = onSnapshot(
       query(collection(db, "kasus"), orderBy("created_at", "desc")),
@@ -32,7 +34,7 @@ export default function DashboardPakar() {
     );
 
     const unsub2 = onSnapshot(
-      query(collection(db, "kasus_pending"), orderBy("created_at", "desc")),
+      query(collection(db, "pendingCases"), orderBy("created_at", "desc")),
       (snapshot) => {
         setPendingList(
           snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
@@ -46,7 +48,8 @@ export default function DashboardPakar() {
     };
   }, []);
 
-  const handleSubmit = async (permintaan_user: any) => {
+  // Simpan kasus dari pending ke koleksi kasus
+  const handleSubmit = async (pendingCase: any) => {
     if (!diagnosa || !solusi) {
       alert("Harap lengkapi diagnosis dan solusi");
       return;
@@ -57,24 +60,25 @@ export default function DashboardPakar() {
     await addDoc(collection(db, "kasus"), {
       diagnosis: diagnosa,
       solusi,
-      gejala: permintaan_user.gejala,
+      gejala: pendingCase.gejala,
       bobot,
-      created_at: new Date(),
+      created_at: serverTimestamp(),
     });
 
-    await deleteDoc(doc(db, "permintaan_user", permintaan_user.id));
+    await deleteDoc(doc(db, "pendingCases", pendingCase.id));
     setDiagnosa("");
     setSolusi("");
     setSelectedId(null);
   };
 
+  // Bobot default untuk tiap diagnosis
   const getDefaultBobot = (diagnosis: string) => {
     const defaultBobot: Record<string, number[]> = {
       "Abses Periodental": [3, 10, 2, 0, 5, 1, 0, 0, 10],
       "Abses Periapikal": [1, 6, 10, 8, 1, 5, 9, 10, 5],
       "Abses Gingiva": [6, 8, 4, 2, 8, 0, 0, 10, 3],
     };
-    return defaultBobot[diagnosis] || Array(9).fill(1);
+    return defaultBobot[diagnosis] || Array(gejalaList.length).fill(0);
   };
 
   return (
@@ -89,12 +93,12 @@ export default function DashboardPakar() {
           Manajemen Kasus & Peninjauan Diagnosa User
         </p>
 
-        {/* Kasus Baru */}
+        {/* Kasus Final */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {kasusList.map((item) => (
             <div
               key={item.id}
-              className="bg-white p-4 rounded-lg shadow border border-gray-200"
+              className="bg-white p-4 rounded-lg shadow border"
             >
               <h2 className="text-xl font-bold text-green-700 mb-1">
                 📌 {item.diagnosis}
@@ -102,50 +106,57 @@ export default function DashboardPakar() {
               <p className="mb-2 text-sm text-gray-700">
                 <strong>Solusi:</strong> {item.solusi}
               </p>
+
               <div className="flex flex-wrap gap-2">
-                {Object.entries(item.gejala).map(([gejala, val]) => (
-                  <span
-                    key={gejala}
-                    className={`px-2 py-1 rounded-full text-xs ${
-                      val
-                        ? "bg-green-100 text-green-800"
-                        : "bg-red-100 text-red-700"
-                    }`}
-                  >
-                    {val ? "✅" : "❌"} {gejala}
-                  </span>
-                ))}
+                {Array.isArray(item.bobot) &&
+                  item.bobot.map((b: number, idx: number) => {
+                    if (b > 0) {
+                      return (
+                        <span
+                          key={gejalaList[idx]}
+                          className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-800"
+                        >
+                          ✅ {gejalaList[idx]}{" "}
+                          <span className="font-semibold">({b})</span>
+                        </span>
+                      );
+                    }
+                    return null;
+                  })}
               </div>
             </div>
           ))}
         </div>
 
-        {/* Pending */}
+        {/* Pending Cases */}
         {pendingList.length > 0 && (
           <div className="mt-10">
             <h2 className="text-2xl font-semibold text-red-700 mb-4">
               🔍 Kasus Pending Peninjauan
             </h2>
             <div className="grid grid-cols-1 gap-6">
-              {pendingList.map((permintaan_user) => (
+              {pendingList.map((pendingCase) => (
                 <div
-                  key={permintaan_user.id}
+                  key={pendingCase.id}
                   className="bg-yellow-50 p-5 rounded shadow border border-yellow-200"
                 >
                   <h3 className="font-semibold text-yellow-900 mb-2">
-                    Kasus dari User (Perlu Diagnosis)
+                    Kasus dari {pendingCase.user_info?.nama || "User"} (
+                    {pendingCase.user_info?.email || "Tidak ada email"})
                   </h3>
+
+                  {/* Gejala */}
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {Object.entries(permintaan_user.gejala).map(([g, v]) => (
+                    {gejalaList.map((g, idx) => (
                       <span
                         key={g}
                         className={`px-2 py-1 rounded-full text-xs ${
-                          v
+                          pendingCase.gejala?.[idx]
                             ? "bg-green-100 text-green-800"
                             : "bg-red-100 text-red-700"
                         }`}
                       >
-                        {v ? "✅" : "❌"} {g}
+                        {pendingCase.gejala?.[idx] ? "✅" : "❌"} {g}
                       </span>
                     ))}
                   </div>
@@ -155,9 +166,9 @@ export default function DashboardPakar() {
                     <label className="text-sm font-medium">Diagnosis:</label>
                     <select
                       className="border px-3 py-2 w-full mb-3"
-                      value={selectedId === permintaan_user.id ? diagnosa : ""}
+                      value={selectedId === pendingCase.id ? diagnosa : ""}
                       onChange={(e) => {
-                        setSelectedId(permintaan_user.id);
+                        setSelectedId(pendingCase.id);
                         setDiagnosa(e.target.value);
                       }}
                     >
@@ -172,20 +183,35 @@ export default function DashboardPakar() {
                     <textarea
                       placeholder="Tulis solusi..."
                       className="border px-3 py-2 w-full"
-                      value={selectedId === permintaan_user.id ? solusi : ""}
+                      value={selectedId === pendingCase.id ? solusi : ""}
                       onChange={(e) => {
-                        setSelectedId(permintaan_user.id);
+                        setSelectedId(pendingCase.id);
                         setSolusi(e.target.value);
                       }}
                     />
                   </div>
 
-                  <button
-                    onClick={() => handleSubmit(permintaan_user)}
-                    className="bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded"
-                  >
-                    Simpan Kasus
-                  </button>
+                  {/* Tombol Aksi */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleSubmit(pendingCase)}
+                      className="bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded"
+                    >
+                      Simpan Kasus
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (confirm("Yakin mau hapus kasus ini?")) {
+                          await deleteDoc(
+                            doc(db, "pendingCases", pendingCase.id)
+                          );
+                        }
+                      }}
+                      className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+                    >
+                      Hapus
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

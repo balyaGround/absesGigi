@@ -1,72 +1,60 @@
 "use client";
 import Header from "@/components/header";
 import { useEffect, useState } from "react";
-import { db } from "@/firebase";
-import {
-  collection,
-  onSnapshot,
-  addDoc,
-  serverTimestamp,
-} from "firebase/firestore";
-import { diagnoseCBRKNN, BaseCase } from "@/lib/diagnoseCBRKNN";
+import { auth } from "@/firebase";
 import { gejalaList } from "@/data/bobotAbses";
+import { diagnoseCBRKNN } from "@/lib/diagnoseCBRKNN";
+import { onAuthStateChanged } from "firebase/auth";
 
 export default function DashboardUser() {
   const [inputGejala, setInputGejala] = useState<Record<string, boolean>>({});
-  const [hasil, setHasil] = useState<{ diagnosis: string; skor: number }[]>([]);
+  const [hasil, setHasil] = useState<any>(null);
   const [threshold] = useState(85);
-  const [berhasilKirim, setBerhasilKirim] = useState(false);
-  const [baseCases, setBaseCases] = useState<BaseCase[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  type FinalDiagnosis = {
-    diagnosis: string;
-    solusi: string;
-    skor: number;
-  };
-
-  const [final, setFinal] = useState<FinalDiagnosis | null>(null);
-
-  // ✅ Ambil basecase dari firestore
+  // Ambil userId dari Firebase Auth
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "kasus"), (snapshot) => {
-      const data = snapshot.docs.map((doc) => {
-        const d = doc.data();
-        return {
-          diagnosis: d.diagnosis,
-          solusi: d.solusi,
-          gejala: d.gejala,
-          bobot: d.bobot || [],
-        };
-      });
-      setBaseCases(data);
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUserId(user.uid);
+        console.log("✅ Login sebagai:", user.email, "UID:", user.uid);
+      } else {
+        console.warn("⚠️ Belum login, redirect atau tampilkan pesan.");
+      }
     });
     return () => unsub();
   }, []);
 
-  // ⬅️ Toggle checkbox
+  // Toggle checkbox gejala
   const toggleGejala = (nama: string) => {
     setInputGejala((prev) => ({ ...prev, [nama]: !prev[nama] }));
   };
 
-  // 🔍 Diagnosa
+  // Fungsi diagnosa
   const handleDiagnose = async () => {
-    setBerhasilKirim(false);
-    const hasilDiagnosis = diagnoseCBRKNN(inputGejala, baseCases);
-    setHasil(hasilDiagnosis);
-
-    const diAtasThreshold = hasilDiagnosis.filter((d) => d.skor >= threshold);
-    if (diAtasThreshold.length > 0) {
-      setFinal(diAtasThreshold[0]);
-    } else {
-      setFinal(null);
-      // ⏫ Kirim permintaan ke pakar
-      await addDoc(collection(db, "permintaan_user"), {
-        gejala: inputGejala,
-        skorDiagnosis: hasilDiagnosis,
-        created_at: serverTimestamp(),
-      });
-      setBerhasilKirim(true);
+    if (!userId) {
+      alert("Silakan login terlebih dahulu.");
+      return;
     }
+
+    setLoading(true);
+    setHasil(null);
+
+    // Convert inputGejala ke array boolean sesuai urutan gejalaList
+    const gejalaArray = gejalaList.map((g) => inputGejala[g] || false);
+    console.log("📝 Gejala Array:", gejalaArray);
+
+    try {
+      const hasilDiagnosis = await diagnoseCBRKNN(userId, gejalaArray);
+      console.log("📊 Hasil Diagnosis:", hasilDiagnosis);
+      setHasil(hasilDiagnosis);
+    } catch (error) {
+      console.error("❌ Error diagnosa:", error);
+      alert("Terjadi kesalahan saat proses diagnosa.");
+    }
+
+    setLoading(false);
   };
 
   return (
@@ -75,6 +63,8 @@ export default function DashboardUser() {
       <h1 className="text-2xl font-bold mb-4 text-green-800">
         🧑‍⚕️ Form Diagnosa Gejala
       </h1>
+
+      {/* Form gejala */}
       <div className="grid grid-cols-2 gap-2 mb-4">
         {gejalaList.map((item) => (
           <label key={item} className="flex items-center space-x-2">
@@ -88,52 +78,53 @@ export default function DashboardUser() {
         ))}
       </div>
 
+      {/* Tombol diagnosa */}
       <button
         onClick={handleDiagnose}
         className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+        disabled={loading}
       >
-        Diagnosa Sekarang
+        {loading ? "Memproses..." : "Diagnosa Sekarang"}
       </button>
 
-      {/* Hasil Diagnosa */}
-      {final && (
-        <div className="mt-6 p-4 bg-green-100 text-green-800 rounded shadow">
-          <h2 className="text-xl font-semibold text-green-700 mb-2">
-            Hasil Diagnosis
-          </h2>
-          <p>
-            <strong>Diagnosis:</strong> {final.diagnosis}
-          </p>
-          <p>
-            <strong>Keterangan:</strong> Kecocokan di atas {threshold}%, sistem
-            berhasil menentukan diagnosis.
-          </p>
-          <p>
-            <strong>Solusi:</strong> {final.solusi}
-          </p>
-        </div>
-      )}
-
-      {/* Jika Tidak Ada yang lolos threshold */}
-      {!final && hasil.length > 0 && (
-        <div className="mt-6 p-4 bg-yellow-100 text-yellow-800 rounded shadow">
-          <p className="font-bold mb-2">Perlu Peninjauan Pakar</p>
-          <p>
-            Skor tertinggi kurang dari {threshold}%. Kasus dikirim ke pakar
-            untuk revisi.
-          </p>
-          <ul className="list-disc ml-6 mt-2">
-            {hasil.map((item) => (
-              <li key={item.diagnosis}>
-                {item.diagnosis}: {item.skor.toFixed(1)}%
-              </li>
-            ))}
-          </ul>
-          {berhasilKirim && (
-            <p className="mt-2 text-green-700">
-              ✅ Permintaan berhasil dikirim ke pakar.
-            </p>
+      {/* Hasil diagnosa */}
+      {hasil && (
+        <div className="mt-6 p-4 bg-white rounded shadow border">
+          {hasil.finalDiagnosis ? (
+            <div className="bg-green-100 p-4 rounded">
+              <h2 className="text-xl font-semibold text-green-700 mb-2">
+                ✅ Hasil Diagnosis
+              </h2>
+              <p>
+                <strong>Diagnosis:</strong> {hasil.finalDiagnosis}
+              </p>
+              <p>
+                <strong>Solusi:</strong> {hasil.solusi}
+              </p>
+              <p>Kecocokan di atas {threshold}%, diagnosis berhasil.</p>
+            </div>
+          ) : (
+            <div className="bg-yellow-100 p-4 rounded">
+              <h2 className="text-xl font-semibold text-yellow-700 mb-2">
+                ⚠️ Perlu Peninjauan Pakar
+              </h2>
+              <p>
+                Skor tertinggi kurang dari {threshold}%. Kasus dikirim ke pakar.
+              </p>
+            </div>
           )}
+
+          {/* Tabel skor */}
+          <div className="mt-4">
+            <h3 className="font-semibold mb-2">📋 Semua Skor</h3>
+            <ul className="list-disc ml-6">
+              {hasil.allScores.map((item: any, i: number) => (
+                <li key={i}>
+                  {item.name}: {item.score}%
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
     </div>
