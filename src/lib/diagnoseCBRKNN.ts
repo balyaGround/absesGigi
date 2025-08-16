@@ -62,20 +62,42 @@ export async function diagnoseCBRKNN(userId: string, gejala: boolean[]) {
   // 4️⃣ Ubah gejala user ke vector bobot (10 kalau dicentang, 0 kalau tidak)
   const userVector = gejala.map((checked) => (checked ? 10 : 0));
 
-  // 5️⃣ Hitung similarity
-  const results: DiagnosisResult[] = kasusList.map((k) => ({
+  // 5️⃣ Hitung similarity untuk semua kasus
+  const rawResults: DiagnosisResult[] = kasusList.map((k) => ({
     name: k.diagnosis,
     score: parseFloat((cosineSimilarity(userVector, k.bobot) * 100).toFixed(1)),
     solusi: k.solusi,
   }));
 
-  // 6️⃣ Urutkan dari skor tertinggi
+  // 6️⃣ Gabungkan berdasarkan diagnosis → ambil rata-rata skor
+  const groupedScores: Record<
+    string,
+    { total: number; count: number; solusi?: string }
+  > = {};
+  for (const r of rawResults) {
+    if (!groupedScores[r.name]) {
+      groupedScores[r.name] = { total: r.score, count: 1, solusi: r.solusi };
+    } else {
+      groupedScores[r.name].total += r.score;
+      groupedScores[r.name].count += 1;
+    }
+  }
+
+  const results: DiagnosisResult[] = Object.entries(groupedScores).map(
+    ([name, data]) => ({
+      name,
+      score: parseFloat((data.total / data.count).toFixed(1)), // rata-rata
+      solusi: data.solusi,
+    })
+  );
+
+  // 7️⃣ Urutkan dari skor tertinggi
   results.sort((a, b) => b.score - a.score);
 
   const threshold = 85;
   const highest = results[0];
 
-  if (highest.score >= threshold) {
+  if (highest && highest.score >= threshold) {
     // Simpan ke caseBase
     await addDoc(collection(db, "caseBase"), {
       gejala,
